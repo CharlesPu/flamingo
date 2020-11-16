@@ -1,0 +1,3 @@
+# flamingo
+
+just a flamingo
