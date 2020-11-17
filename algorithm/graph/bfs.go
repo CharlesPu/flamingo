@@ -1,8 +1,8 @@
 package graph
 
 import (
-	"git.huawei.com/p00507121/flamingo/container/queue"
-	"git.huawei.com/p00507121/flamingo/plog"
+	"github.com/CharlesPu/flamingo/container/queue"
+	"github.com/CharlesPu/flamingo/plog"
 )
 
 // Breadth First Search
