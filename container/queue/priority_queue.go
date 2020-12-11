@@ -19,21 +19,6 @@ type (
 	}
 )
 
-func exchange(data []interface{}, i, j int) {
-	data[i], data[j] = data[j], data[i]
-}
-
-func parent(i int) int {
-	return i / 2
-}
-func left(i int) int {
-	return i * 2
-}
-
-func right(i int) int {
-	return i*2 + 1
-}
-
 func NewMaxPriorityQueue(size int, cmp LessFunc) PriorityQueue {
 	p := &priorityQueueMax{
 		cap: size + 1,
@@ -97,4 +82,20 @@ func (mp *priorityQueueMax) sink(i int) {
 		exchange(mp.q, i, max)
 		i = max
 	}
+}
+
+
+func exchange(data []interface{}, i, j int) {
+	data[i], data[j] = data[j], data[i]
+}
+
+func parent(i int) int {
+	return i / 2
+}
+func left(i int) int {
+	return i * 2
+}
+
+func right(i int) int {
+	return i*2 + 1
 }

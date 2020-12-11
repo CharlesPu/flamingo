@@ -2,6 +2,7 @@ package find
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
@@ -76,7 +77,7 @@ func mapper(k int, fileName string) []uint32 {
 	}
 	defer f.Close()
 
-	// fmt.Println("start to process path", fileName)
+	fmt.Printf("start to process file: %s\n", fileName)
 	r := bufio.NewReader(f)
 	res := make([]uint32, 0, k+1) // last one is cache
 	for {
@@ -110,7 +111,7 @@ func mapper(k int, fileName string) []uint32 {
 	if l > k {
 		l = k
 	}
-	// fmt.Println("end process path", fileName)
+	fmt.Printf("end process file: %s\n", fileName)
 
 	return res[:l]
 }

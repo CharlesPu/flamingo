@@ -21,6 +21,7 @@ const (
 func BenchmarkFindTop50_GOMAXPROCS_12(b *testing.B) {
 	genTestFiles(tmpDirBeta, 100000, 100000)
 	defer cleanTestFiles(tmpDirBeta)
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		FindTop50(tmpDirBeta)
@@ -32,6 +33,7 @@ func BenchmarkFindTop50_GOMAXPROCS_12(b *testing.B) {
 func BenchmarkFindTop50_GOMAXPROCS_1(b *testing.B) {
 	genTestFiles(tmpDirBeta, 100000, 100000)
 	defer cleanTestFiles(tmpDirBeta)
+
 	runtime.GOMAXPROCS(1)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -42,6 +44,7 @@ func BenchmarkFindTop50_GOMAXPROCS_1(b *testing.B) {
 func TestFindTop50(t *testing.T) {
 	genTestFiles(tmpDirBeta, 100000, 100000)
 	defer cleanTestFiles(tmpDirBeta)
+
 	res := FindTop50(tmpDirBeta)
 	t.Log(res)
 }
@@ -50,24 +53,31 @@ func TestGenTestFiles(t *testing.T) {
 	genTestFiles(tmpDirAlpha, 100, 100, []uint32{1231231, 823123, 213418})
 }
 
+// choose random file and line to set expectResults,
+// hence a set of files with expected results
+// Note: expectResults[0] must be sorted
 func genTestFiles(dir string, fileNum, lineNum int, expectResults ...[]uint32) {
 	isNotRandom := false
 	var min uint32
 	var hashRes map[string]uint32
+
 	if len(expectResults) != 0 && len(expectResults[0]) != 0 {
 		isNotRandom = true
 		hashRes = make(map[string]uint32, len(expectResults[0]))
 		min = expectResults[0][len(expectResults[0])-1]
-		isExist := func(idx string) bool {
+
+		setIfNew := func(idx string, value uint32) bool {
 			_, ok := hashRes[idx]
-			return ok
-		}
-		for _, v := range expectResults[0] {
-			hashIdx := fmt.Sprintf("%d-%d", rand.Intn(fileNum), rand.Intn(lineNum))
-			for isExist(hashIdx) {
-				hashIdx = fmt.Sprintf("%d-%d", rand.Intn(fileNum), rand.Intn(lineNum))
+			if ok {
+				return false
 			}
-			hashRes[hashIdx] = v
+			hashRes[idx] = value
+			return true
+		}
+
+		for _, v := range expectResults[0] {
+			for !setIfNew(fmt.Sprintf("%d-%d", rand.Intn(fileNum), rand.Intn(lineNum)), v) {
+			}
 		}
 	}
 
