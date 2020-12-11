@@ -3,6 +3,8 @@ package queue
 type (
 	PriorityQueue interface {
 		Insert(interface{})
+		SwapTop(interface{}) interface{}
+
 		Peek() interface{}
 		Pop() interface{}
 	}
@@ -52,13 +54,23 @@ func (mp *priorityQueueMax) Insert(k interface{}) {
 	mp.swim(len(mp.q) - 1)
 }
 
+func (mp *priorityQueueMax) SwapTop(k interface{}) interface{} {
+	ret := mp.q[1]
+	mp.q[1] = k
+	mp.sink(1)
+	return ret
+}
+
 func (mp *priorityQueueMax) Peek() interface{} {
+	if len(mp.q) <= 1 {
+		return nil
+	}
 	return mp.q[1]
 }
 
 func (mp *priorityQueueMax) Pop() interface{} {
 	ret := mp.q[1]
-	exchange(mp.q, 0, len(mp.q)-1)
+	exchange(mp.q, 1, len(mp.q)-1)
 	mp.q = mp.q[:len(mp.q)-1]
 	mp.sink(1)
 	return ret
@@ -76,7 +88,7 @@ func (mp *priorityQueueMax) swim(i int) {
 func (mp *priorityQueueMax) sink(i int) {
 	for left(i) < len(mp.q) {
 		max := left(i)
-		if mp.less(max, right(i)) {
+		if right(i) < len(mp.q) && mp.less(max, right(i)) {
 			max = right(i)
 		}
 		if mp.less(max, i) {
