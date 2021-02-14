@@ -62,7 +62,7 @@ func (wp *workerPool) Shutdown() {
 	wp.mu.Lock()
 	for e := wp.workers.Front(); e != nil; e = e.Next() {
 		close(e.Value.(*worker).terminateCh)
-		//wp.workerPool.Put(e.Value.(*worker))
+		wp.workerPool.Put(e.Value.(*worker))
 	}
 	wp.workers = wp.workers.Init()
 	wp.activeNum = 0
