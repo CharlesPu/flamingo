@@ -3,6 +3,7 @@ package workerpool
 import (
 	"bytes"
 	"fmt"
+	"sync/atomic"
 	"time"
 )
 
@@ -10,43 +11,43 @@ type (
 	worker struct {
 		name        string // only a name, not a uuid
 		terminateCh chan sig
+		pool        *workerPool
 
 		lastActiveTime time.Time
-		token          chan *workerToken
-	}
-	workerToken struct {
-		task Task
-		res  chan<- interface{}
+		taskFunc       chan Task
 	}
 )
 
 func (w *worker) work(selectCh chan *worker) {
-	defer func() {
-		if err := recover(); err != nil {
-			fmt.Printf("worker %v get a panic: %+v\n", w, err)
-		}
-		fmt.Printf("worker %+v receive terminate signal to quit\n", w)
-	}()
-
+	atomic.AddInt64(&w.pool.activeNum, 1)
 	w.lastActiveTime = time.Now()
-	for {
-		select {
-		case <-w.terminateCh:
-			return
-		case selectCh <- w: // compete success, otherwise waiting task
-			w.lastActiveTime = time.Now() // refresh state
+
+	go func() {
+		defer func() {
+			w.pool.workerPool.Put(w)
+			atomic.AddInt64(&w.pool.activeNum, -1)
+			if err := recover(); err != nil {
+				fmt.Printf("worker %v got a panic: %+v\n", w, err)
+			}
+			fmt.Printf("worker %+v receive terminate signal to quit\n", w)
+		}()
+
+		for {
 			select {
 			case <-w.terminateCh:
 				return
-			case token := <-w.token:
-				fmt.Printf("worker %+v get a task to run\n", w)
-				res := token.task()
-				if token.res != nil {
-					token.res <- res
+			case selectCh <- w: // compete success, otherwise waiting task
+				w.lastActiveTime = time.Now() // refresh state
+				select {
+				case <-w.terminateCh:
+					return
+				case t := <-w.taskFunc:
+					fmt.Printf("worker %+v get a task to run\n", w)
+					t()
 				}
 			}
 		}
-	}
+	}()
 }
 
 func (w worker) String() string {

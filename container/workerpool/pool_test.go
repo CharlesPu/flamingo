@@ -4,13 +4,11 @@ import (
 	"fmt"
 	"reflect"
 	"runtime"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 )
 
-func TestWorkerPool_TryDo_NotEnoughWorker(t *testing.T) {
+func TestWorkerPool_Go_NotEnoughWorker(t *testing.T) {
 	poolSize := 1
 
 	startGoRoutines := runtime.NumGoroutine()
@@ -27,10 +25,10 @@ func TestWorkerPool_TryDo_NotEnoughWorker(t *testing.T) {
 	for i := 0; i < taskNum; i++ {
 		f := func(ii int) {
 			r := fmt.Errorf("error %d", ii)
-			if p.TryDo(func() interface{} {
+			if p.Go(func() {
 				fmt.Printf("I(%d) am running\n", ii)
-				return r
-			}, res) {
+				res <- r
+			}) {
 				success++
 				resExpect[r.Error()] = struct{}{}
 			}
@@ -43,10 +41,10 @@ func TestWorkerPool_TryDo_NotEnoughWorker(t *testing.T) {
 		t.Fatalf("success num is wrong: %+v", success)
 	}
 
-	if p.(*workerPool).activeNum > poolSize {
-		t.Fatalf("pool active worker num is wrong: %+v", p.(*workerPool).activeNum)
+	if p.NumRunning() > poolSize {
+		t.Fatalf("pool active worker num is wrong: %+v", p.NumRunning())
 	}
-	if n := runtime.NumGoroutine(); n != startGoRoutines+1+p.(*workerPool).activeNum {
+	if n := runtime.NumGoroutine(); n != startGoRoutines+1+p.NumRunning() {
 		t.Fatalf("goroutine num is wrong: %+v", n)
 	}
 
@@ -66,13 +64,13 @@ func TestWorkerPool_TryDo_NotEnoughWorker(t *testing.T) {
 	}
 
 	p.Shutdown()
-	time.Sleep(time.Second * 1) // wait all worker to quit
+	time.Sleep(time.Second * 2) // wait all worker to quit
 	if p.NumRunning() != 0 || runtime.NumGoroutine() != startGoRoutines {
-		t.Fatalf("wrong goroutine num: %+v, %+v", p.NumRunning(), runtime.NumGoroutine())
+		t.Fatalf("wrong goroutine num: %+v, %+v, %+v", p.NumRunning(), runtime.NumGoroutine(), startGoRoutines)
 	}
 }
 
-func TestWorkerPool_TryDo_EnoughWorker(t *testing.T) {
+func TestWorkerPool_Go_EnoughWorker(t *testing.T) {
 	taskNum := 100000
 	poolSize := taskNum
 
@@ -89,10 +87,10 @@ func TestWorkerPool_TryDo_EnoughWorker(t *testing.T) {
 	for i := 0; i < taskNum; i++ {
 		f := func(ii int) {
 			r := fmt.Errorf("error %d", ii)
-			if p.TryDo(func() interface{} {
+			if p.Go(func() {
 				fmt.Printf("I(%d) am running\n", ii)
-				return r
-			}, res) {
+				res <- r
+			}) {
 				success++
 				resExpect[r.Error()] = struct{}{}
 			}
@@ -131,7 +129,7 @@ func TestWorkerPool_TryDo_EnoughWorker(t *testing.T) {
 	time.Sleep(time.Second * 1) // wait all worker to quit
 	t.Log(p.NumRunning(), runtime.NumGoroutine())
 	if p.NumRunning() != 0 || runtime.NumGoroutine() != startGoRoutines {
-		t.Fatalf("wrong goroutine num: %+v, %+v", p.NumRunning(), runtime.NumGoroutine())
+		t.Fatalf("wrong goroutine num: %+v, %+v, %+v", p.NumRunning(), runtime.NumGoroutine(), startGoRoutines)
 	}
 }
 
@@ -150,10 +148,10 @@ func TestWorkerPool_Clean(t *testing.T) {
 	for i := 0; i < taskNum; i++ {
 		f := func(ii int) {
 			r := fmt.Errorf("error %d", ii)
-			p.TryDo(func() interface{} {
+			p.Go(func() {
 				fmt.Printf("I(%d) am running\n", ii)
-				return r
-			}, res)
+				res <- r
+			})
 		}
 		f(i) // hold i
 	}
@@ -166,62 +164,6 @@ func TestWorkerPool_Clean(t *testing.T) {
 	time.Sleep(time.Second * 1) // wait all worker to quit
 	t.Log(p.NumRunning(), runtime.NumGoroutine())
 	if p.NumRunning() != 0 || runtime.NumGoroutine() != startGoRoutines {
-		t.Fatalf("wrong goroutine num: %+v, %+v", p.NumRunning(), runtime.NumGoroutine())
+		t.Fatalf("wrong goroutine num: %+v, %+v, %+v", p.NumRunning(), runtime.NumGoroutine(), startGoRoutines)
 	}
-}
-
-// todo
-func TestWorkerPool(t *testing.T) {
-	runtime.GOMAXPROCS(1)
-
-	wg := &sync.WaitGroup{}
-	taskNum := 1000000
-	p := NewWorkerPool(taskNum)
-	s := time.Now()
-	res := make(chan interface{}, taskNum)
-	var success int64
-	for i := 0; i < taskNum; i++ {
-		wg.Add(1)
-
-		f := func(ii int) {
-			if p.TryDo(func() interface{} {
-				return nil
-			}, res) {
-				atomic.AddInt64(&success, 1)
-			}
-			wg.Done()
-		}
-		f(i)
-	}
-
-	wg.Wait()
-
-	t.Logf("success run task num %+v", success)
-	t.Logf("aaa %+v", time.Now().Sub(s))
-}
-
-func TestWorkerPool_Go(t *testing.T) {
-	runtime.GOMAXPROCS(1)
-	s := time.Now()
-	wg := &sync.WaitGroup{}
-	taskNum := 1000000
-
-	res := make(chan interface{}, taskNum)
-	var success int64
-	for i := 0; i < taskNum; i++ {
-		wg.Add(1)
-
-		f := func(ii int) interface{} {
-			atomic.AddInt64(&success, 1)
-			return nil
-		}
-		go func(ii int) {
-			res <- f(ii) // hold i
-			wg.Done()
-		}(i)
-	}
-	wg.Wait()
-
-	t.Logf("success run task num %+v", success)
-	t.Logf("aaa %+v", time.Now().Sub(s))
 }

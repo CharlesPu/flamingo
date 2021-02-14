@@ -4,49 +4,56 @@ import (
 	"container/list"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 type (
 	Pool interface {
-		Do(f Task, res chan<- interface{})
-		TryDo(f Task, res chan<- interface{}) (doing bool)
-		DoWait(f Task) interface{}
+		Go(f Task) (doing bool)
 
 		NumRunning() int
 
 		Shutdown()
 	}
-	Task func() interface{}
+	Task func()
 
 	workerPool struct {
-		workerMaxNum int
-		activeNum    int
-		mu           *sync.Mutex
+		workerMaxNum int64
+		activeNum    int64
+		mu           *sync.Mutex // protect workers list
 
 		workers    *list.List
 		workerPool *sync.Pool
 
-		stopCh   chan sig
-		selectCh chan *worker
+		state       int32
+		selectCh    chan *worker
+		stopCleanCh chan sig
 	}
 
 	sig struct{}
 )
 
+const (
+	running = iota
+	closed
+)
+
 func NewWorkerPool(size int) Pool {
 	r := &workerPool{
-		workerMaxNum: size,
+		workerMaxNum: int64(size),
 		mu:           &sync.Mutex{},
 		workers:      list.New(),
-		stopCh:       make(chan sig),
+		state:        running,
 		selectCh:     make(chan *worker),
+		stopCleanCh:  make(chan sig),
 	}
 	r.workerPool = &sync.Pool{
 		New: func() interface{} {
 			return &worker{
+				pool:        r,
 				terminateCh: make(chan sig),
-				token:       make(chan *workerToken),
+				taskFunc:    make(chan Task),
 			}
 		},
 	}
@@ -57,63 +64,29 @@ func NewWorkerPool(size int) Pool {
 	return r
 }
 
-func (wp *workerPool) Shutdown() {
-	close(wp.stopCh)
-	wp.mu.Lock()
-	for e := wp.workers.Front(); e != nil; e = e.Next() {
-		close(e.Value.(*worker).terminateCh)
-		wp.workerPool.Put(e.Value.(*worker))
-	}
-	wp.workers = wp.workers.Init()
-	wp.activeNum = 0
-	wp.mu.Unlock()
-}
-
 // non-block
-func (wp *workerPool) Do(f Task, res chan<- interface{}) {
-	worker := wp.getWorker()
-	if worker == nil {
-		return
-	}
-	worker.token <- &workerToken{
-		task: f,
-		res:  res,
-	}
-}
-
-// non-block
-func (wp *workerPool) TryDo(f Task, res chan<- interface{}) (doing bool) {
+func (wp *workerPool) Go(f Task) (doing bool) {
 	worker := wp.getWorker()
 	if worker == nil {
 		return false
 	}
-	worker.token <- &workerToken{
-		task: f,
-		res:  res,
-	}
+	worker.taskFunc <- f
 	return true
 }
 
-// may block
-func (wp *workerPool) DoWait(f Task) interface{} {
-	worker := wp.getWorker()
-	if worker == nil {
-		fmt.Println("no worker to run")
-		return nil
-	}
-	res := make(chan interface{})
-	worker.token <- &workerToken{
-		task: f,
-		res:  res,
-	}
-	return <-res
+func (wp *workerPool) NumRunning() int {
+	return int(atomic.LoadInt64(&wp.activeNum))
 }
 
-func (wp *workerPool) NumRunning() int {
+func (wp *workerPool) Shutdown() {
+	atomic.StoreInt32(&wp.state, closed)
+	close(wp.stopCleanCh)
 	wp.mu.Lock()
-	r := wp.activeNum
+	for e := wp.workers.Front(); e != nil; e = e.Next() {
+		close(e.Value.(*worker).terminateCh)
+	}
+	wp.workers = wp.workers.Init()
 	wp.mu.Unlock()
-	return r
 }
 
 const (
@@ -122,16 +95,15 @@ const (
 
 // release least active worker
 func (wp *workerPool) clean() {
-	defer func() {
-		fmt.Println("quit clean")
-	}()
 	tk := time.NewTicker(idleDuration)
+
 	for {
 		select {
-		case <-wp.stopCh:
+		case <-wp.stopCleanCh:
+			fmt.Printf("quit clean\n")
 			return
 		case <-tk.C:
-			fmt.Println("start to clean idle workers")
+			fmt.Printf("start to clean idle workers\n")
 			wp.mu.Lock()
 			var needDelete []*list.Element
 			for e := wp.workers.Front(); e != nil; e = e.Next() {
@@ -143,8 +115,6 @@ func (wp *workerPool) clean() {
 				w := e.Value.(*worker)
 				w.terminateCh <- sig{}
 				wp.workers.Remove(e)
-				wp.workerPool.Put(w)
-				wp.activeNum--
 				fmt.Printf("release worker: %+v\n", w)
 			}
 			wp.mu.Unlock()
@@ -153,31 +123,34 @@ func (wp *workerPool) clean() {
 }
 
 func (wp *workerPool) getWorker() *worker {
-	select {
-	case <-wp.stopCh:
+	if wp.isClosed() {
 		return nil
+	}
+
+	select {
 	case w := <-wp.selectCh: // get a active worker
 		fmt.Printf("get a ACTIVE worker: %+v\n", w)
 		return w
 	default: // try to create new worker
+		// create
 		wp.mu.Lock()
-		if wp.activeNum >= wp.workerMaxNum {
-			fmt.Printf("worker pool is full(%+v), no active worker\n", wp.activeNum)
+		if n := atomic.LoadInt64(&wp.activeNum); n >= wp.workerMaxNum {
+			fmt.Printf("worker pool is full(%+v), no active worker\n", n)
 			wp.mu.Unlock()
 			return nil
 		}
-		// create
+
 		w := wp.workerPool.Get().(*worker)
-		//w := &worker{
-		//	terminateCh: make(chan sig),
-		//	token:       make(chan *workerToken),
-		//}
 		w.name = fmt.Sprintf("%d", time.Now().UnixNano())
-		go w.work(wp.selectCh)
 		fmt.Printf("create a NEW worker: %+v\n", w.name)
+		w.work(wp.selectCh)
 		wp.workers.PushBack(w)
-		wp.activeNum++
 		wp.mu.Unlock()
+
 		return wp.getWorker() // after create, try to catch it, but may caught by others
 	}
+}
+
+func (wp *workerPool) isClosed() bool {
+	return atomic.LoadInt32(&wp.state) == closed
 }
