@@ -107,7 +107,7 @@ func (wp *workerPool) clean() {
 			wp.mu.Lock()
 			var needDelete []*list.Element
 			for e := wp.workers.Front(); e != nil; e = e.Next() {
-				if time.Now().Sub(e.Value.(*worker).lastActiveTime) >= idleDuration {
+				if time.Now().Sub(e.Value.(*worker).getLastActiveTime()) >= idleDuration {
 					needDelete = append(needDelete, e)
 				}
 			}
