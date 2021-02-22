@@ -9,27 +9,37 @@ import (
 
 type (
 	worker struct {
-		name        string // only a name, not a uuid
+		name        string // only a id, not a uuid
 		terminateCh chan sig
 		pool        *workerPool
 
 		lastActiveTime atomic.Value
+		state          int32
 		taskFunc       chan Task
 	}
 )
 
-func (w *worker) work(selectCh chan *worker) {
+const (
+	workerDown = iota
+	workerIdle
+	workerRunning
+)
+
+func (w *worker) work(selectCh chan<- *worker) {
+	atomic.StoreInt32(&w.state, workerIdle)
 	atomic.AddInt64(&w.pool.activeNum, 1)
 	w.refreshActiveTime()
 
 	go func() {
 		defer func() {
+			if err := recover(); err != nil {
+				fmt.Printf("[worker pool] worker %v got a panic: %+v\n", w, err)
+			}
+			fmt.Printf("[worker pool] worker %+v receive terminate signal to quit\n", w)
+
+			atomic.StoreInt32(&w.state, workerDown)
 			w.pool.workerPool.Put(w)
 			atomic.AddInt64(&w.pool.activeNum, -1)
-			if err := recover(); err != nil {
-				fmt.Printf("worker %v got a panic: %+v\n", w, err)
-			}
-			fmt.Printf("worker %+v receive terminate signal to quit\n", w)
 		}()
 
 		for {
@@ -37,14 +47,16 @@ func (w *worker) work(selectCh chan *worker) {
 			case <-w.terminateCh:
 				return
 			case selectCh <- w: // compete success, otherwise waiting task
-				w.refreshActiveTime() // refresh state
 				select {
 				case <-w.terminateCh:
 					return
 				case t := <-w.taskFunc:
-					fmt.Printf("worker %+v get a task to run\n", w)
+					fmt.Printf("[worker pool] worker %+v get a task to run\n", w)
+					w.refreshActiveTime() // refresh state
+					atomic.StoreInt32(&w.state, workerRunning)
 					t()
 				}
+				atomic.StoreInt32(&w.state, workerIdle)
 			}
 		}
 	}()
@@ -56,6 +68,10 @@ func (w *worker) refreshActiveTime() {
 
 func (w *worker) getLastActiveTime() time.Time {
 	return w.lastActiveTime.Load().(time.Time)
+}
+
+func (w *worker) isIdle() bool {
+	return atomic.LoadInt32(&w.state) == workerIdle
 }
 
 func (w worker) String() string {

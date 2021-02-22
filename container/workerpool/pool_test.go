@@ -136,26 +136,24 @@ func TestWorkerPool_Go_EnoughWorker(t *testing.T) {
 func TestWorkerPool_Clean(t *testing.T) {
 	taskNum := 1000
 	poolSize := taskNum
+	idle := time.Second * 3
 
 	startGoRoutines := runtime.NumGoroutine()
-	p := NewWorkerPool(poolSize)
+	p := NewWorkerPool(poolSize, WithCleanDuration(idle))
 
 	if n := runtime.NumGoroutine(); n != startGoRoutines+1 {
 		t.Fatalf("goroutine num is wrong: %+v", n)
 	}
 
-	res := make(chan interface{}, taskNum)
 	for i := 0; i < taskNum; i++ {
 		f := func(ii int) {
-			r := fmt.Errorf("error %d", ii)
 			p.Go(func() {
 				fmt.Printf("I(%d) am running\n", ii)
-				res <- r
 			})
 		}
 		f(i) // hold i
 	}
-	time.Sleep(2 * idleDuration) // ensure clean really happens
+	time.Sleep(2 * idle) // ensure clean really happens
 	if x, y := p.NumRunning(), runtime.NumGoroutine(); x != 0 || y != startGoRoutines+1 {
 		t.Fatalf("wrong worker or goroutine num: %+v, %+v", x, y)
 	}
@@ -165,5 +163,39 @@ func TestWorkerPool_Clean(t *testing.T) {
 	t.Log(p.NumRunning(), runtime.NumGoroutine())
 	if p.NumRunning() != 0 || runtime.NumGoroutine() != startGoRoutines {
 		t.Fatalf("wrong goroutine num: %+v, %+v, %+v", p.NumRunning(), runtime.NumGoroutine(), startGoRoutines)
+	}
+}
+
+func TestWorkerPool_CleanRunningWorker(t *testing.T) {
+	taskNum := 1000
+	poolSize := taskNum
+	idle := time.Second * 2
+
+	startGoRoutines := runtime.NumGoroutine()
+	p := NewWorkerPool(poolSize, WithCleanDuration(idle))
+
+	if n := runtime.NumGoroutine(); n != startGoRoutines+1 {
+		t.Fatalf("goroutine num is wrong: %+v", n)
+	}
+
+	for i := 0; i < taskNum; i++ {
+		f := func(ii int) {
+			p.Go(func() {
+				fmt.Printf("I(%d) am running\n", ii)
+				<-make(chan struct{})
+			})
+		}
+		f(i) // hold i
+	}
+	time.Sleep(2 * idle) // ensure clean really happens
+	if n := runtime.NumGoroutine(); n != startGoRoutines+1+p.NumRunning() {
+		t.Fatalf("wrong goroutine num: %+v != %+v", n, startGoRoutines+1+p.NumRunning())
+	}
+
+	p.Shutdown()
+	time.Sleep(time.Second * 1) // wait all worker to quit
+	t.Log(p.NumRunning(), runtime.NumGoroutine())
+	if p.NumRunning() == 0 {
+		t.Fatalf("wrong goroutine num: %+v", p.NumRunning())
 	}
 }
