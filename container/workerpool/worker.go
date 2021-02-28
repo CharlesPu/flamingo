@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync/atomic"
 	"time"
+
+	"github.com/CharlesPu/flamingo/plog"
 )
 
 type (
@@ -33,9 +35,9 @@ func (w *worker) work(selectCh chan<- *worker) {
 	go func() {
 		defer func() {
 			if err := recover(); err != nil {
-				fmt.Printf("[worker pool] worker %v got a panic: %+v\n", w, err)
+				plog.Infof("[worker pool] worker %v got a panic: %+v", w, err)
 			}
-			fmt.Printf("[worker pool] worker %+v receive terminate signal to quit\n", w)
+			plog.Infof("[worker pool] worker %+v receive terminate signal to quit", w)
 
 			atomic.StoreInt32(&w.state, workerDown)
 			w.pool.workerPool.Put(w)
@@ -51,7 +53,7 @@ func (w *worker) work(selectCh chan<- *worker) {
 				case <-w.terminateCh:
 					return
 				case t := <-w.taskFunc:
-					fmt.Printf("[worker pool] worker %+v get a task to run\n", w)
+					plog.Infof("[worker pool] worker %+v get a task to run", w)
 					w.refreshActiveTime() // refresh state
 					atomic.StoreInt32(&w.state, workerRunning)
 					t()

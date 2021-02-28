@@ -6,6 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/CharlesPu/flamingo/plog"
 )
 
 type (
@@ -86,7 +88,7 @@ func (wp *workerPool) NumRunning() int {
 }
 
 func (wp *workerPool) Shutdown() {
-	fmt.Printf("[worker pool] shutdown...\n")
+	plog.Infof("[worker pool] shutdown...")
 	atomic.StoreInt32(&wp.state, poolClosed)
 	close(wp.stopCleanCh)
 	wp.mu.Lock()
@@ -101,7 +103,7 @@ func (wp *workerPool) Shutdown() {
 func (wp *workerPool) clean() {
 	idleDuration := wp.options.cleanDuration
 	if idleDuration == 0 {
-		fmt.Printf("[worker pool] disable clean idle workers\n")
+		plog.Infof("[worker pool] disable clean idle workers")
 		return
 	}
 
@@ -111,10 +113,10 @@ func (wp *workerPool) clean() {
 	for {
 		select {
 		case <-wp.stopCleanCh:
-			fmt.Printf("[worker pool] quit clean\n")
+			plog.Infof("[worker pool] quit clean")
 			return
 		case <-tk.C:
-			fmt.Printf("[worker pool] start to clean idle workers\n")
+			plog.Infof("[worker pool] start to clean idle workers")
 			wp.mu.Lock()
 			var needDelete []*list.Element
 			now := time.Now()
@@ -128,7 +130,7 @@ func (wp *workerPool) clean() {
 				w := e.Value.(*worker)
 				w.terminateCh <- sig{}
 				wp.workers.Remove(e)
-				fmt.Printf("[worker pool] release worker: %+v\n", w)
+				plog.Infof("[worker pool] release worker: %+v", w)
 			}
 			wp.mu.Unlock()
 		}
@@ -142,19 +144,19 @@ func (wp *workerPool) getWorker() *worker {
 
 	select {
 	case w := <-wp.selectCh: // get a active worker
-		fmt.Printf("[worker pool] get a ACTIVE worker: %+v\n", w)
+		plog.Infof("[worker pool] get a ACTIVE worker: %+v", w)
 		return w
 	default: // try to create new worker
 		wp.mu.Lock()
 		if n := atomic.LoadInt64(&wp.activeNum); n >= wp.workerMaxNum {
-			fmt.Printf("[worker pool] worker pool is full(%+v), no active worker\n", n)
+			plog.Infof("[worker pool] worker pool is full(%+v), no active worker", n)
 			wp.mu.Unlock()
 			return nil
 		}
 
 		w := wp.workerPool.Get().(*worker)
 		w.name = fmt.Sprintf("%d", time.Now().UnixNano())
-		fmt.Printf("[worker pool] create a NEW worker: %+v\n", w.name)
+		plog.Infof("[worker pool] create a NEW worker: %+v", w.name)
 		w.work(wp.selectCh)
 		wp.workers.PushBack(w)
 		wp.mu.Unlock()

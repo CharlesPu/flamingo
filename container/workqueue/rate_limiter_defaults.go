@@ -46,6 +46,9 @@ func (e *exponentialBackOffRateLimiter) When(item interface{}) time.Duration {
 func (e *exponentialBackOffRateLimiter) Forget(item interface{}) {
 	e.failLock.Lock()
 	delete(e.failCnt, item)
+	if len(e.failCnt) == 0 { // avoid mem leak
+		e.failCnt = make(map[interface{}]int)
+	}
 	e.failLock.Unlock()
 }
 
@@ -92,6 +95,9 @@ func (r *randomRateLimiter) When(item interface{}) time.Duration {
 func (r *randomRateLimiter) Forget(item interface{}) {
 	r.failLock.Lock()
 	delete(r.failCnt, item)
+	if len(r.failCnt) == 0 { // avoid mem leak
+		r.failCnt = make(map[interface{}]int)
+	}
 	r.failLock.Unlock()
 }
 

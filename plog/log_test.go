@@ -9,7 +9,7 @@ import (
 )
 
 func TestLog(t *testing.T) {
-	Logf(Info, "hahah")
+	Logf(LevelInfo, "hahah")
 	Infof("haha")
 	Infof("%+v", perror.New("ahaha").OriginError())
 	fmt.Fprintf(os.Stderr, "hahah")

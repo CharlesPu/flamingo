@@ -12,10 +12,11 @@ var (
 	stdLogger = New(allLog, "")
 
 	logLevels = map[logLevel]string{
-		Debug: "Debug",
-		Info:  "Info",
-		Error: "Error",
-		Fatal: "Fatal",
+		LevelDebug: "Debug",
+		LevelInfo:  "Info",
+		LevelWarn:  "Warn",
+		LevelError: "Error",
+		LevelFatal: "Fatal",
 	}
 )
 
@@ -30,10 +31,11 @@ type (
 
 const (
 	allLog logLevel = iota
-	Debug
-	Info
-	Error
-	Fatal
+	LevelDebug
+	LevelInfo
+	LevelWarn
+	LevelError
+	LevelFatal
 	noLog
 )
 
@@ -58,7 +60,7 @@ func (lg *logger) writeLog(l logLevel, format string, a ...interface{}) {
 	fcStrs := strings.Split(fc, "/")
 	fcStr := fcStrs[len(fcStrs)-1]
 
-	buf := fmt.Sprintf("[%s][%s][%s, %d][%s] ", time.Now().Format(timeFormat), logLevels[l], fileName, line, fcStr)
+	buf := fmt.Sprintf("[%s][%s][%s,%d][%s] ", time.Now().Format(timeFormat), logLevels[l], fileName, line, fcStr)
 	buf += fmt.Sprintf(format+"\n", a...)
 	if lg.fileOut != "" {
 		fd, err := os.OpenFile(lg.fileOut, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
@@ -73,29 +75,36 @@ func (lg *logger) writeLog(l logLevel, format string, a ...interface{}) {
 }
 
 func Fatalf(format string, a ...interface{}) {
-	if Fatal < stdLogger.sysLogLevel {
+	if LevelFatal < stdLogger.sysLogLevel {
 		return
 	}
-	stdLogger.writeLog(Fatal, format, a...)
+	stdLogger.writeLog(LevelFatal, format, a...)
 }
 
 func Errorf(format string, a ...interface{}) {
-	if Error < stdLogger.sysLogLevel {
+	if LevelError < stdLogger.sysLogLevel {
 		return
 	}
-	stdLogger.writeLog(Error, format, a...)
+	stdLogger.writeLog(LevelError, format, a...)
+}
+
+func Warnf(format string, a ...interface{}) {
+	if LevelWarn < stdLogger.sysLogLevel {
+		return
+	}
+	stdLogger.writeLog(LevelWarn, format, a...)
 }
 
 func Infof(format string, a ...interface{}) {
-	if Info < stdLogger.sysLogLevel {
+	if LevelInfo < stdLogger.sysLogLevel {
 		return
 	}
-	stdLogger.writeLog(Info, format, a...)
+	stdLogger.writeLog(LevelInfo, format, a...)
 }
 
 func Debugf(format string, a ...interface{}) {
-	if Debug < stdLogger.sysLogLevel {
+	if LevelDebug < stdLogger.sysLogLevel {
 		return
 	}
-	stdLogger.writeLog(Debug, format, a...)
+	stdLogger.writeLog(LevelDebug, format, a...)
 }
