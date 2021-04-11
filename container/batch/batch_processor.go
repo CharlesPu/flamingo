@@ -9,6 +9,7 @@ import (
 
 type (
 	batchProcessor struct {
+		stopChan   chan struct{}
 		buffer     chan interface{}
 		bufferSize int
 
@@ -38,6 +39,7 @@ func NewBatchProcessor(s int, c Consumer, opts ...OptionFunc) BatchProcessor {
 	}
 
 	r := &batchProcessor{
+		stopChan:   make(chan struct{}, 1),
 		buffer:     make(chan interface{}, s),
 		bufferSize: s,
 		options:    &opt,
@@ -85,6 +87,7 @@ func (b *batchProcessor) Shutdown() {
 	atomic.StoreInt32(&b.state, batchProcClosed)
 	b.timer.Stop()
 	b.buffer <- nil
+	b.stopChan <- struct{}{}
 }
 
 func (b *batchProcessor) Num() int {
@@ -104,7 +107,10 @@ func (b *batchProcessor) notify() {
 	var itemsWeight int
 	flushFunc := func() {
 		b.flush(batch)
-		batch = make([]interface{}, 0, b.options.batchThreshold)
+		for i := range batch {
+			batch[i] = nil
+		}
+		batch = batch[:0]
 		itemsWeight = 0
 	}
 
@@ -138,8 +144,17 @@ func (b *batchProcessor) notify() {
 }
 
 func (b *batchProcessor) timerSignal() {
-	for range b.timer.C {
-		b.buffer <- new(timerSig)
+	for {
+		select {
+		case <-b.timer.C:
+			select {
+			case b.buffer <- new(timerSig):
+			case <-b.stopChan:
+				return
+			}
+		case <-b.stopChan:
+			return
+		}
 	}
 }
 

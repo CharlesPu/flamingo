@@ -17,4 +17,21 @@ type (
 		// must be reentrancy
 		Consume([]interface{})
 	}
+
+	KeyBatchProcessor interface {
+		TryPut(string, interface{}) bool
+
+		Run()
+		Shutdown()
+
+		KeyNum() int
+		BufferNum() int
+
+		flush(string, []interface{})
+	}
+
+	KeyConsumer interface {
+		// must be reentrancy
+		Consume(string, []interface{})
+	}
 )
